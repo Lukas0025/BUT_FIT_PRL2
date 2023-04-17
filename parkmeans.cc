@@ -72,7 +72,7 @@ void printSubPoints(float *centeroids, size_t centeroidIndex, std::vector<uint8_
 
         // compute nearist centeroid
         for (size_t i = 0; i < CENTEROIDS_COUNT; i++) {
-            unsigned thisDistance = std::abs(centeroids[i] - array[p]);
+            float thisDistance = std::abs(centeroids[i] - array[p]);
 
             if (thisDistance < nearestDistance) { // find nearist centeroids in old centeroids array
                 nearestDistance  = thisDistance;
@@ -109,11 +109,9 @@ int main(int argc, char** argv) {
     }
 
     uint8_t localNumber;
-    float   globalCenteroids1[CENTEROIDS_COUNT] = {float(fileBuffer[0]), float(fileBuffer[1]), float(fileBuffer[2]), float(fileBuffer[3])};
-    float   globalCenteroids2[CENTEROIDS_COUNT];
-    float   localCenteroids[CENTEROIDS_COUNT];
-    int     localCounts[CENTEROIDS_COUNT];
-    int     globalCounts[CENTEROIDS_COUNT];
+    float   globalCenteroids1[CENTEROIDS_COUNT * 2] = {float(fileBuffer[0]), float(fileBuffer[1]), float(fileBuffer[2]), float(fileBuffer[3])};
+    float   globalCenteroids2[CENTEROIDS_COUNT * 2];
+    float   localCenteroids  [CENTEROIDS_COUNT * 2];
 
     float  *workCenteroids[2]    = {globalCenteroids1, globalCenteroids2};
 
@@ -140,25 +138,24 @@ int main(int argc, char** argv) {
                 nearestCemteroid = i;
             }
 
-            localCenteroids[i] = 0; // clear new centeroids
-            localCounts[i]     = 0;
+            localCenteroids[i]                    = 0; // clear new centeroids
+            localCenteroids[i + CENTEROIDS_COUNT] = 0; // clear sums
         }
 
         // Add self number to nearest centeroid
-        localCenteroids[nearestCemteroid] = float(localNumber);
-        localCounts[nearestCemteroid]     = 1;
+        localCenteroids[nearestCemteroid]                    = float(localNumber);
+        localCenteroids[nearestCemteroid + CENTEROIDS_COUNT] = 1;
 
         // reduce sum for new centeroids and clout of numbers in cluster
-        MPI_Allreduce(localCenteroids, workCenteroids[NEW], CENTEROIDS_COUNT, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-        MPI_Allreduce(localCounts,     globalCounts,        CENTEROIDS_COUNT, MPI_INT,   MPI_SUM, MPI_COMM_WORLD);
+        MPI_Allreduce(localCenteroids, workCenteroids[NEW], CENTEROIDS_COUNT * 2, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
 
         DEBUG_PRINT("New centers sums are %f %f %f %f\n", workCenteroids[NEW][0], workCenteroids[NEW][1], workCenteroids[NEW][2], workCenteroids[NEW][3]);
-        DEBUG_PRINT("Centers counts are %d %d %d %d\n", globalCounts[0], globalCounts[1], globalCounts[2], globalCounts[3]);
+        DEBUG_PRINT("Centers counts are %f %f %f %f\n", workCenteroids[NEW][4], workCenteroids[NEW][5], workCenteroids[NEW][6], workCenteroids[NEW][7]);
 
         // compute mean on all and check if its same
         bool timeToEnd = true;
         for (size_t i = 0; i < CENTEROIDS_COUNT; i++) {
-            workCenteroids[NEW][i] = (globalCounts[i] == 0 ? workCenteroids[OLD][i] : workCenteroids[NEW][i] / globalCounts[i]);
+            workCenteroids[NEW][i] = (workCenteroids[NEW][i + CENTEROIDS_COUNT] == 0 ? workCenteroids[OLD][i] : workCenteroids[NEW][i] / workCenteroids[NEW][i + CENTEROIDS_COUNT]);
 
             if (std::abs(workCenteroids[NEW][i] - workCenteroids[OLD][i]) > 0.01) timeToEnd = false;
         }
