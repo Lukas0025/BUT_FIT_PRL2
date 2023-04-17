@@ -1,7 +1,7 @@
 /**
- * Paraller splitting algoritm implementation with MPI
+ * Paraller k-means clustering algoritm implementation with MPI
  * @author Lukáš Plevač <xpleva07@vut.cz>
- * @date 2023.04.01
+ * @date 2023.04.17
  */
 
 #include <stdio.h>
@@ -57,10 +57,10 @@ std::vector<uint8_t> loadData(size_t readSize) {
 }
 
 /**
- * Print array to STDOUT
- * @param array pointer to uint8_t array
- * @param size  size of array
- * @param name  Name of array to print 
+ * Print points in one cluster by centeroid
+ * @param centeroids     pointer to float array of centeroids
+ * @param centeroidIndex index of centeroid of cluter to print
+ * @param array          vector of uint8_t numbers in all clusters 
  */
 void printSubPoints(float *centeroids, size_t centeroidIndex, std::vector<uint8_t> &array) {
     
@@ -117,12 +117,15 @@ int main(int argc, char** argv) {
 
     float  *workCenteroids[2]    = {globalCenteroids1, globalCenteroids2};
 
-
+    // scatter numbers over all ranks
     MPI_Scatter(fileBuffer.data(), 1, MPI_UINT8_T, &localNumber, 1, MPI_UINT8_T, MPI_ROOT_RANK, MPI_COMM_WORLD);
+    
+    // broadcast init centeroids to all
     MPI_Bcast(globalCenteroids1, CENTEROIDS_COUNT, MPI_FLOAT, MPI_ROOT_RANK, MPI_COMM_WORLD);
 
     DEBUG_PRINT("Scatter done centers are %f %f %f %f number is %d\n", globalCenteroids1[0], globalCenteroids1[1], globalCenteroids1[2], globalCenteroids1[3], localNumber);
 
+    // k-means loop until centeroids not change
     while (true) {
         // compute new centeroids
         size_t nearestCemteroid = 0;
@@ -145,20 +148,19 @@ int main(int argc, char** argv) {
         localCenteroids[nearestCemteroid] = float(localNumber);
         localCounts[nearestCemteroid]     = 1;
 
-        // reduce sum for new centeroids
+        // reduce sum for new centeroids and clout of numbers in cluster
         MPI_Allreduce(localCenteroids, workCenteroids[NEW], CENTEROIDS_COUNT, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
         MPI_Allreduce(localCounts,     globalCounts,        CENTEROIDS_COUNT, MPI_INT,   MPI_SUM, MPI_COMM_WORLD);
 
         DEBUG_PRINT("New centers sums are %f %f %f %f\n", workCenteroids[NEW][0], workCenteroids[NEW][1], workCenteroids[NEW][2], workCenteroids[NEW][3]);
         DEBUG_PRINT("Centers counts are %d %d %d %d\n", globalCounts[0], globalCounts[1], globalCounts[2], globalCounts[3]);
 
-
         // compute mean on all and check if its same
         bool timeToEnd = true;
         for (size_t i = 0; i < CENTEROIDS_COUNT; i++) {
             workCenteroids[NEW][i] = (globalCounts[i] == 0 ? workCenteroids[OLD][i] : workCenteroids[NEW][i] / globalCounts[i]);
 
-            if (std::abs(workCenteroids[NEW][i] - workCenteroids[OLD][i]) > 0.1) timeToEnd = false;
+            if (std::abs(workCenteroids[NEW][i] - workCenteroids[OLD][i]) > 0.01) timeToEnd = false;
         }
 
         // check if its same
